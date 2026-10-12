@@ -1,0 +1,15 @@
+[project]
+name = "catalog-audit"
+version = "0.2.0"
+description = "Read-only audit of public product pages: observations, not verdicts."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+classifiers = ["Programming Language :: Python :: 3", "License :: OSI Approved :: MIT License"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
