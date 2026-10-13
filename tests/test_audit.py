@@ -42,7 +42,7 @@ class Site:
 
 
 def fetcher(**kw):
-    return Fetcher(Budget(**kw) if kw else None, timeout=3, cafile=None)
+    return Fetcher(Budget(**kw) if kw else None, timeout=3, cafile=None, allow_private=True)  # the test site runs on 127.0.0.1
 
 
 PAGE = b"""<html><head><title>Lounge</title><meta name="description" content="short"></head><body>
@@ -158,6 +158,27 @@ class Pages(unittest.TestCase):
             s.close()
         self.assertEqual(r["http"], 403)
         self.assertNotIn("images_checked", r)
+
+
+class Addresses(unittest.TestCase):
+    def test_private_local_and_bad_schemes_are_refused(self):
+        from catalog_audit.audit import AddressRefused, check_address
+        for url in ("http://127.0.0.1/x", "http://10.0.0.5/x", "http://169.254.169.254/latest/", "http://[::1]/x",
+                    "file:///etc/passwd", "ftp://a.example/"):
+            with self.assertRaises(AddressRefused, msg=url):
+                check_address(url)
+
+    def test_fetcher_reports_a_refused_address_as_an_error(self):
+        status, _, _, err = Fetcher(timeout=1, cafile=None).request("http://127.0.0.1:9/x")
+        self.assertIsNone(status)
+        self.assertIn("private/local", err)
+
+    def test_redirect_to_a_private_address_is_refused(self):
+        import urllib.request
+        from catalog_audit.audit import AddressRefused, _CheckedRedirects
+        with self.assertRaises(AddressRefused):
+            _CheckedRedirects(False).redirect_request(urllib.request.Request("https://shop.example/p"), None, 302, "Found", {},
+                                                      "http://10.0.0.1/admin")
 
 
 if __name__ == "__main__":

@@ -5,8 +5,10 @@ images from other hosts unless asked, stop at the request and time budget. Every
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
+import socket
 import ssl
 import time
 import urllib.error
@@ -38,22 +40,55 @@ class Budget:
         self.used += 1
 
 
-class Fetcher:
-    """HTTP access with a certificate-checking context; returns (status, headers, body, error). Never raises on HTTP errors."""
+class AddressRefused(Exception):
+    pass
 
-    def __init__(self, budget: Optional[Budget] = None, timeout: float = 10.0, cafile: Optional[str] = "/etc/ssl/cert.pem"):
+
+def check_address(url: str, allow_private: bool = False) -> None:
+    """Only http(s), and no private, loopback, link-local, reserved or multicast addresses unless allow_private=True."""
+    p = urllib.parse.urlsplit(url)
+    if p.scheme not in ("http", "https") or not p.hostname:
+        raise AddressRefused(f"only http(s) urls: {url[:80]}")
+    if allow_private:
+        return
+    for info in socket.getaddrinfo(p.hostname, p.port or 80, type=socket.SOCK_STREAM):
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise AddressRefused(f"private/local address refused: {p.hostname}")
+
+
+class _CheckedRedirects(urllib.request.HTTPRedirectHandler):
+    """A redirect cannot lead to an internal address either."""
+
+    def __init__(self, allow_private: bool):
+        self.allow_private = allow_private
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_address(newurl, self.allow_private)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class Fetcher:
+    """HTTP access with a certificate-checking context; returns (status, headers, body, error). Never raises on HTTP errors.
+    Every URL and every redirect target is checked: private and local addresses are refused unless allow_private=True."""
+
+    def __init__(self, budget: Optional[Budget] = None, timeout: float = 10.0, cafile: Optional[str] = "/etc/ssl/cert.pem",
+                 allow_private: bool = False):
         self.budget = budget or Budget()
         self.timeout = timeout
+        self.allow_private = allow_private
         try:
             self.ctx = ssl.create_default_context(cafile=cafile) if cafile else ssl.create_default_context()
         except OSError:
             self.ctx = ssl.create_default_context()
+        self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=self.ctx), _CheckedRedirects(allow_private))
 
     def request(self, url: str, method: str = "GET", headers: Optional[dict] = None, limit: int = HTML_LIMIT):
         self.budget.spend()
         req = urllib.request.Request(url, method=method, headers={"User-Agent": UA, **(headers or {})})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout, context=self.ctx) as r:
+            check_address(url, self.allow_private)
+            with self.opener.open(req, timeout=self.timeout) as r:
                 body = r.read(limit + 1) if method == "GET" else b""
                 return r.status, dict(r.headers), body, None
         except urllib.error.HTTPError as e:

@@ -9,6 +9,7 @@ A small, read-only audit tool for **public** product pages. It gives you observa
 - Reports: HTTP status, title, `meta description` length, length of the text inside an element marked as description (class/id contains `descr`), whether JSON-LD declares a `Product`, and the status of the first images.
 - Images: `HEAD` first; if the server answers `405/501`, a tiny ranged `GET`. Only `404/410` counts as **not found**; `401/403` is **blocked** (check in a browser), not "broken". Images on other hosts are not requested unless you pass `--allow-external-images`.
 - Stops at a request budget and a time budget.
+- Only `http(s)` addresses. Private, local and link-local addresses (your home network, `127.0.0.1`, cloud metadata) are refused, for the page, every image and every redirect target, so a page cannot point the tool at your own network.
 
 ## Honest limits
 `None`/`false` means "not detected by this method", not "missing". A short or empty description in the output is a reason to look, not proof of a defect. Check every finding in a browser before you tell anyone about it.
